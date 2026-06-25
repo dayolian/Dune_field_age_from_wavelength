@@ -1,0 +1,7 @@
+# Ignore everything by default
+*
+
+# Track Python scripts and README
+!*.py
+!README.txt
+!.gitignore
