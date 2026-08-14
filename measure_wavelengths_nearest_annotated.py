@@ -2,11 +2,6 @@
 """
 measure_wavelengths_nearest.py  --  ANNOTATED
 
-Your code is unchanged. Everything added is a comment. Comments beginning with
-"FLAG" mark something worth acting on.
-
-Original docstring follows.
-=============================================================================
 
 Production wavelength extraction using the 'nearest_tile' strategy.
 
@@ -20,10 +15,6 @@ For each tile:
 NOTE ON METHOD: this uses the hand-measured lambda to select which FFT peak is
 the dune. The output is therefore an FFT-REFINED wavelength guided by the field
 estimate, not an independent prediction. It is a validation/refinement tool.
-
-    ^^^ This paragraph is the single most important thing in the file and it
-    belongs in the paper's methods section verbatim. A reviewer who works it
-    out unaided will treat it far worse than one who was told plainly.
 
 Output CSV columns (one row per tile):
   region, lat, lon, tile_basename,
