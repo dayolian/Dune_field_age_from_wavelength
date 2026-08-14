@@ -44,6 +44,8 @@ import numpy as np
 import pandas as pd
 import openpyxl
 
+INTERMITTENCY_CSV = "intermittency_by_migration.csv"
+
 # ---- model constants ----
 MODEL_INCIP = 43.429     # l0 units (col G, same for all sites)
 QS_MODEL    = 0.125
@@ -59,11 +61,44 @@ W_BOUNDARY   = 187.5
 W_FLAG       = 5000.0    # W above this = highly uncertain extrapolation
 
 
+
+def align_latlon_from_intermittency(phys, intermittency_csv):
+    """Attach lat/lon to physics rows using per-region file order of the
+    intermittency CSV. Physics blocks are alphabetical; the CSV blocks are not,
+    so alignment must be done within each region, never globally."""
+    import numpy as np, pandas as pd
+    im = pd.read_csv(intermittency_csv)
+    lat = np.full(len(phys), np.nan)
+    lon = np.full(len(phys), np.nan)
+    for reg, idx in phys.groupby("region", sort=False).groups.items():
+        idx = list(idx)
+        sub = im[im.region == reg]
+        if len(sub) != len(idx):
+            raise ValueError(
+                "%s: physics %d rows vs intermittency %d" % (reg, len(idx), len(sub)))
+        a = phys.loc[idx, "interm_pct"].values.astype(float)
+        b = sub["intermit_net_algo_pct"].values.astype(float)
+        off = int((np.abs(a - b) >= 0.01).sum())
+        if off:
+            raise ValueError(
+                "%s: %d rows disagree on intermittency, alignment unsafe" % (reg, off))
+        lat[idx] = sub["lat"].values
+        lon[idx] = sub["lon"].values
+    phys = phys.copy()
+    phys["lat"] = lat
+    phys["lon"] = lon
+    return phys
+
 def load_physics(xlsx, coords_csv=None):
     """
-    Load per-site physics. The xlsx has no lat/lon, so if coords_csv (a modes
-    CSV with region+lat+lon for the SAME 1005 tiles in the SAME order) is given,
-    attach lat/lon by order -- validated safe because both are the full tile set.
+    Load per-site physics from the spreadsheet.
+
+    The xlsx carries a region name per row but NO coordinates, so lat/lon have
+    to be recovered from row order. Passing coords_csv switches that on. NOTE
+    the coords file itself is no longer read: coordinates now come from
+    INTERMITTENCY_CSV via align_latlon_from_intermittency(), which matches
+    within each region and verifies the pairing against the intermittency
+    values before accepting it. The argument is kept only as an opt-in flag.
     """
     wb = openpyxl.load_workbook(xlsx, data_only=True)
     ws = wb["Sheet1"]
@@ -86,16 +121,7 @@ def load_physics(xlsx, coords_csv=None):
     phys = pd.DataFrame(rows)
 
     if coords_csv:
-        modes = pd.read_csv(coords_csv)
-        tiles = modes[["region", "lat", "lon"]].drop_duplicates().reset_index(drop=True)
-        if len(tiles) != len(phys):
-            raise ValueError(f"coords tiles ({len(tiles)}) != physics rows ({len(phys)}); "
-                             "cannot attach lat/lon by order")
-        if not (tiles["region"].values == phys["region"].values).all():
-            raise ValueError("region order differs between physics and coords file; "
-                             "lat/lon attachment unsafe")
-        phys["lat"] = tiles["lat"].values
-        phys["lon"] = tiles["lon"].values
+        phys = align_latlon_from_intermittency(phys, INTERMITTENCY_CSV)
     return phys
 
 
@@ -208,8 +234,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--physics", default="new_model_age_analysis.xlsx")
     ap.add_argument("--coords", default=None,
-                    help="modes CSV with region+lat+lon for all 1005 tiles, same "
-                         "order as physics; enables exact lat/lon join to FFT")
+                    help="switches on lat/lon recovery, which is required for the "
+                         "FFT join. The file itself is NOT read; coordinates come "
+                         "from intermittency_by_migration.csv. Pass any path.")
     ap.add_argument("--wavelengths", default=None,
                     help="final_wavelengths.csv (optional; replaces modern lambda)")
     ap.add_argument("--out", default="results/dune_ages.csv")
@@ -232,7 +259,7 @@ def main():
 
     import os
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    keep = ["region", "wavelength_source", "fft_confidence",
+    keep = ["region", "lat", "lon", "wavelength_source", "fft_confidence",
             "incip_real", "l0_m", "Qr_m2s", "t0_years", "intermittency_frac",
             "modern_used", "W_modern_l0",
             "age_power_years", "age_linear_years", "age_geomean_years",
